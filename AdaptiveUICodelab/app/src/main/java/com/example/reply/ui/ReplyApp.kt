@@ -16,6 +16,7 @@
 
 package com.example.reply.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -39,12 +40,16 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.PermanentDrawerSheet
+import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
@@ -58,6 +63,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.reply.R
 import com.example.reply.ui.utils.DevicePosture
+import com.example.reply.ui.utils.ReplyContentType
+import com.example.reply.ui.utils.ReplyNavigationType
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,36 +74,129 @@ fun ReplyApp(
     windowSize: WindowWidthSizeClass,
     foldingDevicePosture: DevicePosture
 ) {
-    // You will add navigation info here
-    ReplyNavigationWrapperUI(replyHomeUIState)
+    val navigationType: ReplyNavigationType
+    val contentType: ReplyContentType
+
+    when (windowSize) {
+        WindowWidthSizeClass.Expanded -> {
+            navigationType = if (foldingDevicePosture is DevicePosture.BookPosture) {
+                ReplyNavigationType.NAVIGATION_RAIL
+            } else {
+                ReplyNavigationType.PERMANENT_NAVIGATION_DRAWER
+            }
+            contentType = ReplyContentType.LIST_AND_DETAIL
+        }
+
+        WindowWidthSizeClass.Medium -> {
+            navigationType = ReplyNavigationType.NAVIGATION_RAIL
+            contentType = if (foldingDevicePosture is DevicePosture.BookPosture
+                || foldingDevicePosture is DevicePosture.Separating
+            ) {
+                ReplyContentType.LIST_AND_DETAIL
+            } else {
+                ReplyContentType.LIST_ONLY
+            }
+        }
+
+        WindowWidthSizeClass.Compact -> {
+            navigationType = ReplyNavigationType.BOTTOM_NAVIGATION
+            contentType = ReplyContentType.LIST_ONLY
+        }
+
+        else -> {
+            navigationType = ReplyNavigationType.BOTTOM_NAVIGATION
+            contentType = ReplyContentType.LIST_ONLY
+        }
+    }
+    ReplyNavigationWrapperUI(contentType, navigationType, replyHomeUIState)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReplyNavigationWrapperUI(
+    contentType: ReplyContentType,
+    navigationType: ReplyNavigationType,
     replyHomeUIState: ReplyHomeUIState
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val selectedDestination = ReplyDestinations.INBOX
 
-    ReplyAppContent(replyHomeUIState)
+    if (navigationType == ReplyNavigationType.PERMANENT_NAVIGATION_DRAWER) {
+        PermanentNavigationDrawer(
+            drawerContent = {
+                PermanentDrawerSheet {
+                    NavigationDrawerContent(selectedDestination)
+                }
+            }
+        ) {
+            ReplyAppContent(navigationType, contentType, replyHomeUIState)
+        }
+    } else {
+        ModalNavigationDrawer(
+            drawerContent = {
+                ModalDrawerSheet {
+                    NavigationDrawerContent(
+                        selectedDestination,
+                        onDrawerClicked = {
+                            scope.launch {
+                                drawerState.close()
+                            }
+                        }
+                    )
+                }
+            },
+            drawerState = drawerState
+        ) {
+            ReplyAppContent(
+                navigationType, contentType, replyHomeUIState,
+                onDrawerClicked = {
+                    scope.launch {
+                        drawerState.open()
+                    }
+                }
+            )
+        }
+    }
+
+    ReplyAppContent(navigationType, contentType, replyHomeUIState)
 }
 
 
 @Composable
 fun ReplyAppContent(
+    navigationType: ReplyNavigationType,
+    contentType: ReplyContentType,
     replyHomeUIState: ReplyHomeUIState,
     onDrawerClicked: () -> Unit = {}
 ) {
-    Row(modifier = Modifier
-        .fillMaxSize()) {
-        Column(modifier = Modifier
+    Row(
+        modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.inverseOnSurface)
+    ) {
+        AnimatedVisibility(visible = navigationType == ReplyNavigationType.NAVIGATION_RAIL) {
+            ReplyNavigationRail(
+                onDrawerClicked = onDrawerClicked
+            )
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.inverseOnSurface)
         ) {
-            ReplyListOnlyContent(replyHomeUIState = replyHomeUIState, modifier = Modifier.weight(1f))
-            ReplyBottomNavigationBar()
+            if (contentType == ReplyContentType.LIST_AND_DETAIL){
+                ReplyListAndDetailContent(replyHomeUIState = replyHomeUIState, modifier = Modifier.weight(1f))
+            }
+            else{
+                ReplyListOnlyContent(
+                    replyHomeUIState = replyHomeUIState,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            AnimatedVisibility(visible = navigationType == ReplyNavigationType.BOTTOM_NAVIGATION) {
+                ReplyBottomNavigationBar()
+            }
         }
     }
 }
@@ -109,27 +210,47 @@ fun ReplyNavigationRail(
         NavigationRailItem(
             selected = false,
             onClick = onDrawerClicked,
-            icon =  { Icon(imageVector = Icons.Default.Menu, contentDescription = stringResource(id = R.string.navigation_drawer)) }
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Menu,
+                    contentDescription = stringResource(id = R.string.navigation_drawer)
+                )
+            }
         )
         NavigationRailItem(
             selected = true,
             onClick = { /*TODO*/ },
-            icon =  { Icon(imageVector = Icons.Default.Inbox, contentDescription = stringResource(id = R.string.tab_inbox)) }
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Inbox,
+                    contentDescription = stringResource(id = R.string.tab_inbox)
+                )
+            }
         )
         NavigationRailItem(
             selected = false,
             onClick = {/*TODO*/ },
-            icon =  { Icon(imageVector = Icons.Default.Article, stringResource(id = R.string.tab_article)) }
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Article,
+                    stringResource(id = R.string.tab_article)
+                )
+            }
         )
         NavigationRailItem(
             selected = false,
             onClick = { /*TODO*/ },
-            icon =  { Icon(imageVector = Icons.Outlined.Chat, stringResource(id = R.string.tab_dm)) }
+            icon = { Icon(imageVector = Icons.Outlined.Chat, stringResource(id = R.string.tab_dm)) }
         )
         NavigationRailItem(
             selected = false,
             onClick = { /*TODO*/ },
-            icon =  { Icon(imageVector = Icons.Outlined.People, stringResource(id = R.string.tab_groups)) }
+            icon = {
+                Icon(
+                    imageVector = Icons.Outlined.People,
+                    stringResource(id = R.string.tab_groups)
+                )
+            }
         )
     }
 }
@@ -138,25 +259,45 @@ fun ReplyNavigationRail(
 @Preview
 fun ReplyBottomNavigationBar() {
     NavigationBar(modifier = Modifier.fillMaxWidth()) {
-       NavigationBarItem(
-           selected = true,
-           onClick = { /*TODO*/ },
-           icon = { Icon(imageVector = Icons.Default.Inbox, contentDescription = stringResource(id = R.string.tab_inbox)) }
-       )
         NavigationBarItem(
-            selected = false,
+            selected = true,
             onClick = { /*TODO*/ },
-            icon = { Icon(imageVector = Icons.Default.Article, contentDescription = stringResource(id = R.string.tab_inbox)) }
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Inbox,
+                    contentDescription = stringResource(id = R.string.tab_inbox)
+                )
+            }
         )
         NavigationBarItem(
             selected = false,
             onClick = { /*TODO*/ },
-            icon = { Icon(imageVector = Icons.Outlined.Chat, contentDescription = stringResource(id = R.string.tab_inbox)) }
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Article,
+                    contentDescription = stringResource(id = R.string.tab_inbox)
+                )
+            }
         )
         NavigationBarItem(
             selected = false,
             onClick = { /*TODO*/ },
-            icon = { Icon(imageVector = Icons.Outlined.Videocam, contentDescription = stringResource(id = R.string.tab_inbox)) }
+            icon = {
+                Icon(
+                    imageVector = Icons.Outlined.Chat,
+                    contentDescription = stringResource(id = R.string.tab_inbox)
+                )
+            }
+        )
+        NavigationBarItem(
+            selected = false,
+            onClick = { /*TODO*/ },
+            icon = {
+                Icon(
+                    imageVector = Icons.Outlined.Videocam,
+                    contentDescription = stringResource(id = R.string.tab_inbox)
+                )
+            }
         )
     }
 }
@@ -197,29 +338,69 @@ fun NavigationDrawerContent(
 
         NavigationDrawerItem(
             selected = selectedDestination == ReplyDestinations.INBOX,
-            label = { Text(text = stringResource(id = R.string.tab_inbox), modifier = Modifier.padding(horizontal = 16.dp)) },
-            icon = { Icon(imageVector = Icons.Default.Inbox, contentDescription =  stringResource(id = R.string.tab_inbox)) },
+            label = {
+                Text(
+                    text = stringResource(id = R.string.tab_inbox),
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Inbox,
+                    contentDescription = stringResource(id = R.string.tab_inbox)
+                )
+            },
             colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent),
             onClick = { /*TODO*/ }
         )
         NavigationDrawerItem(
             selected = selectedDestination == ReplyDestinations.ARTICLES,
-            label = { Text(text = stringResource(id = R.string.tab_article), modifier = Modifier.padding(horizontal = 16.dp)) },
-            icon = { Icon(imageVector =  Icons.Default.Article, contentDescription =  stringResource(id = R.string.tab_article)) },
+            label = {
+                Text(
+                    text = stringResource(id = R.string.tab_article),
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Article,
+                    contentDescription = stringResource(id = R.string.tab_article)
+                )
+            },
             colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent),
             onClick = { /*TODO*/ }
         )
         NavigationDrawerItem(
             selected = selectedDestination == ReplyDestinations.DM,
-            label = { Text(text = stringResource(id = R.string.tab_dm), modifier = Modifier.padding(horizontal = 16.dp)) },
-            icon = { Icon(imageVector =  Icons.Default.Chat, contentDescription =  stringResource(id = R.string.tab_dm)) },
+            label = {
+                Text(
+                    text = stringResource(id = R.string.tab_dm),
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Chat,
+                    contentDescription = stringResource(id = R.string.tab_dm)
+                )
+            },
             colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent),
             onClick = { /*TODO*/ }
         )
         NavigationDrawerItem(
             selected = selectedDestination == ReplyDestinations.GROUPS,
-            label = { Text(text = stringResource(id = R.string.tab_groups), modifier = Modifier.padding(horizontal = 16.dp)) },
-            icon = { Icon(imageVector =  Icons.Default.Article, contentDescription =  stringResource(id = R.string.tab_groups)) },
+            label = {
+                Text(
+                    text = stringResource(id = R.string.tab_groups),
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Article,
+                    contentDescription = stringResource(id = R.string.tab_groups)
+                )
+            },
             colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent),
             onClick = { /*TODO*/ }
         )
