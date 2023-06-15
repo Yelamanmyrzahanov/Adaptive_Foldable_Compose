@@ -60,6 +60,7 @@ android {
             excludes += '/META-INF/{AL2.0,LGPL2.1}'
         }
     }
+    buildToolsVersion '30.0.2'
 }
 
 dependencies {
@@ -69,6 +70,7 @@ dependencies {
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
+    implementation "androidx.compose.material3:material3-window-size-class:1.1.0"
     implementation 'androidx.compose.material3:material3'
     implementation "androidx.compose.material:material-icons-extended"
     implementation "androidx.compose.ui:ui-tooling-preview"
